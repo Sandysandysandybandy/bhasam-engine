@@ -1,38 +1,43 @@
-# This is the updated Python code, adapted to run on Render.
-# It uses a lightweight web framework called Flask to create a web API.
-# It now includes the Flask-Cors library to handle browser security.
+# This is the upgraded Python code, incorporating your suggestions.
+# 1. Uses an environment variable for the API key (more secure).
+# 2. Uses the logging module for better debugging.
+# 3. Trims the data from Alpha Vantage to only the last 30 days (more efficient).
 
 import os
+import logging
 from flask import Flask, request, jsonify
-from flask_cors import CORS  # Import the CORS library
+from flask_cors import CORS
 import requests
 
-# Initialize the Flask app.
-app = Flask(__name__)
+# Set up proper logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Apply CORS to your app. This will add the necessary headers
-# to allow your browser-based React app to make requests to it.
+# Initialize the Flask app
+app = Flask(__name__)
 CORS(app)
 
-# IMPORTANT: This is your Alpha Vantage API key.
-ALPHA_VANTAGE_API_KEY = "LU1020ACE39BLEGG"
+# 1. Get the API key securely from an environment variable
+ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 
-# This defines the main endpoint for our API.
-# The app will call this URL to get stock data.
 @app.route('/get_stock_data', methods=['GET'])
 def get_stock_data():
     """
-    Fetches daily time series data for a given stock ticker from Alpha Vantage.
-    The ticker symbol should be passed as a query parameter.
-    Example: https://your-engine-name.onrender.com/get_stock_data?ticker=RELIANCE.NS
+    Fetches the last 30 days of time series data for a given stock ticker.
     """
     try:
         ticker = request.args.get("ticker")
 
         if not ticker:
+            logger.warning("Request received without a ticker parameter.")
             return jsonify({"error": "Please provide a 'ticker' parameter."}), 400
 
-        print(f"Received request for ticker: {ticker}")
+        # Check if the API key is configured on the server
+        if not ALPHA_VANTAGE_API_KEY:
+            logger.error("ALPHA_VANTAGE_API_KEY environment variable is not set on the server.")
+            return jsonify({"error": "Server is not configured with an API key."}), 500
+
+        logger.info(f"Received request for ticker: {ticker}")
 
         url = (
             "https://www.alphavantage.co/query?"
@@ -46,21 +51,32 @@ def get_stock_data():
         data = response.json()
 
         if "Error Message" in data:
-            print(f"Alpha Vantage API Error: {data['Error Message']}")
+            logger.error(f"Alpha Vantage API Error for {ticker}: {data['Error Message']}")
             return jsonify({"error": data['Error Message']}), 404
         
-        print(f"Successfully fetched data for {ticker}")
-        return jsonify(data)
+        # 2. Trim the data to the last 30 days for efficiency
+        if "Time Series (Daily)" in data:
+            trimmed_series = dict(list(data["Time Series (Daily)"].items())[:30])
+            trimmed_data = {
+                "Meta Data": data["Meta Data"],
+                "Time Series (Daily)": trimmed_series
+            }
+            logger.info(f"Successfully fetched and trimmed data for {ticker}")
+            return jsonify(trimmed_data)
+        else:
+             logger.error(f"No time series data found for {ticker} in response.")
+             return jsonify({"error": "No time series data found."}), 404
+
 
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching data from Alpha Vantage: {e}")
+        logger.error(f"Error fetching data from Alpha Vantage: {e}")
         return jsonify({"error": "Error communicating with the financial data provider."}), 500
 
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        logger.error(f"An unexpected server error occurred: {e}")
         return jsonify({"error": "An internal server error occurred."}), 500
 
-# This is a simple health check endpoint to confirm the server is running.
 @app.route('/')
 def index():
-    return "BHASAM Data Engine is running."
+    return "BHASAM Data Engine v2 is running."
+
